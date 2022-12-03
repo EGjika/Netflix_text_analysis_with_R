@@ -1,0 +1,444 @@
+---
+title: "Netflix Text Analysis"
+author: "Eralda Gjika"
+date: "03 December 2022"
+output:
+  html_notebook: default
+  word_document: default
+---
+
+# Netflix datset text analysis {.tabset}
+
+## Introduction
+In this example we are going to do some text and sentimental analysis with the Netflix dataset. The dataset has a lot of information so you may do many analysis based on your research question and target variable. 
+
+**Data source:** https://www.kaggle.com/datasets/shivamb/netflix-shows/download?datasetVersionNumber=5 
+
+The main libraries we will use are:
+```{r}
+library(dplyr)
+library(tidytext)
+library(ggplot2)
+library(ggthemes)
+library(stringr)
+library(tidyr)
+```
+
+we will work on description variable so we will select only this columns as a start.
+```{r}
+library(readr)
+netflix_titles <- read_csv("netflix_titles.csv")
+View(netflix_titles)
+```
+
+Dealing with **stopwords** helps a lot, especially when our text information is not clear and official. Below we may see some of the stop-words used in main libraries, but you may also create your own stop-word vector and remove unnecessary words from your text. For more on this refer to the work done here: https://github.com/EGjika/Text-Analysis-NASA-dataset
+
+```{r}
+data("stop_words")
+head(stop_words)
+# or we may use 
+stop_words$word[which(stop_words$word %in% sentiments$word)] %>% head(20)
+```
+
+## World cloud
+For a start we will use wordcloud to have a better view of our text. We may apply it at "description" or even to understand which cast and director has mostly appeared.
+### For description
+```{r}
+# Libraries used
+library(wordcloud)
+library(SnowballC)
+#generate word cloud
+set.seed(1234)
+wordcloud(words = netflix_titles$description, max.words=100, random.order=FALSE, rot.per=0.40, colors=brewer.pal(8, "Dark2"))
+```
+### For Cast and director
+```{r}
+set.seed(1234)
+wordcloud(words = netflix_titles$cast, max.words=100, random.order=FALSE, rot.per=0.40, colors=brewer.pal(8, "Dark2"))
+
+set.seed(1234)
+wordcloud(words = netflix_titles$director, max.words=100, random.order=FALSE, rot.per=0.40, colors=brewer.pal(8, "Dark2"))
+```
+### Word Association
+We may also use correlation as a statistical measure to demonstrate whether, and how strongly, pairs of variables are related. In this case we are looking at  analyzing which words occur most often in association with the most frequently occurring words.
+This script shows which words are most frequently associated with the terms "good","work","health","love","comedy" (corlimit = 0.3 is the lower limit/threshold set. You can set it lower to see more words, or higher to see less). or, even change the list of words based on theri frequency (higher better).
+
+```{r}
+library(tm)
+# Build a term-document matrix
+Netflx_dtm <- TermDocumentMatrix(netflix_titles$description)
+# Find associations 
+findAssocs(Netflx_dtm, terms = c("good","work","health","love","comedy"), corlimit = 0.3)			
+
+```
+
+```{r}
+# Find associations for words that occur at least 50 times
+findAssocs(Netflx_dtm, terms = findFreqTerms(Netflx_dtm, lowfreq = 1000), corlimit = 0.3)
+```
+## Tokenization
+
+Here we will start our process of tikenization for our "description" column.
+
+```{r}
+library(dplyr)
+tidy_netflix_description <- netflix_titles %>%
+select("show_id","description")
+head(tidy_netflix_title)
+
+Netflx<-tidy_netflix_description %>%
+   unnest_tokens(
+    output = word,
+    input = description,# our column of interest
+    token = 'words',
+    drop = FALSE
+  ) %>%
+  ungroup()
+head(Netflx,24)# show just first 24 rows of words
+ 
+```
+Let's create a frequency table of words used in "description":
+
+```{r}
+Netflx<- Netflx %>%
+unnest_tokens(word, description) %>%
+count(word, sort = TRUE)
+Netflx
+```
+Now, you can remove the stop words from your data frame:
+```{r}
+Netflx <- Netflx %>%
+anti_join(stop_words)
+Netflx # after removing stop_words
+```
+Next, run the following to plot the words in Netflix Description that appear more than 50 times. You will see in this situation almost nothing to understand so, why not filter based on the frequency. 
+(try to change the number of frequency to other frequencies 3000)
+```{r}
+
+Netflx %>%
+filter(n > 50) %>%
+mutate(word = reorder(word, n)) %>%
+ggplot(aes(word, n)) +
+geom_col(fill = "darkred") +
+theme_fivethirtyeight() +
+xlab(NULL) +
+ylab("Word Count") +
+  coord_flip() +
+ggtitle("Word Usage in Netflix description more than 50 times")
+
+Netflx %>%
+filter(n > 3000) %>%
+mutate(word = reorder(word, n)) %>%
+ggplot(aes(word, n)) +
+geom_col(fill = "darkred") +
+theme_fivethirtyeight() +
+xlab(NULL) +
+ylab("Word Count") +
+  coord_flip() +
+ggtitle("Word Usage in Netflix description more than 50 times")
+```
+
+Why not group by show_id? Let's do it!
+```{r}
+Netflx_s<-tidy_netflix_description %>%
+   unnest_tokens(
+    output = word,
+    input = description,# our column of interest
+    token = 'words',
+    drop = FALSE
+  ) %>%
+  ungroup()
+# get sentiment via inner join
+netflix_sentiment = Netflx_s %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(show_id, description) %>% # group by show_id and description
+  dplyr::summarise(sentiment=sum(value)) %>% # value will be the numerical sentiment given and we want to group by show_id
+  ungroup()
+
+netflix_sentiment
+```
+Next!
+We may filter those show_id which are in a given range of sentiment.
+```{r}
+netflix_sentiment%>%
+filter(sentiment >=12) %>%
+ggplot(aes(show_id, sentiment)) +
+theme_fivethirtyeight() +
+geom_col() +
+xlab(NULL) +
+coord_flip() +
+ylab("Word Count") +
+ggtitle("Sentiment greater than 12 in Netflix show_id", subtitle = "Sentiment Analysis Using NRC")
+```
+
+## Sentiment Lexicons
+There are three mostly used lexicons in R:
+```{r}
+get_sentiments("bing")
+get_sentiments("afinn")
+get_sentiments("nrc")
+```
+Now we will try BING lexicon on description.
+```{r}
+Netflx_bing <- Netflx %>%
+inner_join(get_sentiments("bing"))
+Netflx_bing
+```
+### Library "yarr"
+
+We may create some graphs here . They work better if we have also a time variable we may use. Why not try? (exercise for you)
+```{r}
+library(yarrr)
+
+pirateplot(formula =  n ~ word + sentiment, #Formula
+   data = Netflx_bing, #Data frame
+   xlab = NULL, ylab = "Word Count", #Axis labels
+   main = "Lexical Diversity Netflix", #Plot title
+   pal = "google", #Color scheme
+   point.o = .2, #Points
+   avg.line.o = 1, #Turn on the Average/Mean line
+   theme = 0, #Theme
+   point.pch = 16, #Point `pch` type
+   point.cex = 1.5, #Point size
+   jitter.val = .1, #Turn on jitter to see the songs better
+   cex.lab = .9, cex.names = .7) #Axis label size
+```
+
+To obtain a better view we may filter some of the words with a given number of frequency:
+
+```{r}
+Netflx_bing %>%
+  filter(n>=1500) %>%
+pirateplot(formula =  n ~ word + sentiment, #Formula
+   xlab = NULL, ylab = "Word Count", #Axis labels
+   main = "Lexical Diversity Netflix", #Plot title
+   pal = "google", #Color scheme
+   point.o = .2, #Points
+   avg.line.o = 1, #Turn on the Average/Mean line
+   theme = 0, #Theme
+   point.pch = 16, #Point `pch` type
+   point.cex = 1.5, #Point size
+   jitter.val = .1, #Turn on jitter to see the songs better
+   cex.lab = .9, cex.names = .7) #Axis label size
+```
+For more reference: https://www.datacamp.com/tutorial/sentiment-analysis-R
+
+
+```{r}
+Netflx_nrc <- Netflx %>%
+inner_join(get_sentiments("nrc"))
+Netflx_nrc
+```
+
+```{r}
+Netflx_nrc %>%
+filter(n > 2000) %>%
+mutate(word = reorder(word, n)) %>%
+ggplot(aes(word, n, fill=sentiment)) +
+theme_fivethirtyeight() +
+geom_col() +
+xlab(NULL) +
+coord_flip() +
+ylab("Word Count") +
+ggtitle("Word Usage in Netflix description", subtitle = "Sentiment Analysis Using NRC")
+```
+
+Produce a horizontal bar chart showing positive and negative word usage in Netflix description using the Bing et al. sentiment lexicon.(try to change the value 2000 and observe the words)
+```{r}
+Netflx_bing %>%
+filter(n > 2000) %>%
+mutate(word = reorder(word, n)) %>%
+ggplot(aes(word, n, fill=sentiment)) +
+theme_fivethirtyeight() +
+geom_col() +
+xlab(NULL) +
+coord_flip() +
+ylab("Word Count") +
+ggtitle("Word Usage in Netflix description", subtitle = "Sentiment Analysis Using
+Bing et al.")
+```
+
+```{r}
+Netflx_nrc %>%
+filter(n > 2000) %>%
+mutate(word = reorder(word, n)) %>%
+ggplot(aes(word, n, fill=sentiment)) +
+theme_fivethirtyeight() +
+geom_col() +
+xlab(NULL) +
+coord_flip() +
+ylab("Word Count") +
+ggtitle("Word Usage in Netflix description", subtitle = "Sentiment Analysis Using nrc")
+```
+
+Try to filter some of the sentiments as in the examples below. 
+I am interested on knowwing which words are related to the sentiment "surprise" and then "love" in teh description of the Netflix Movies or TV Shows.
+```{r}
+Net_nrc_surprise <- get_sentiments("nrc") %>%
+filter(sentiment == "surprise")
+Net_nrc_surprise
+Netflx %>%
+inner_join(Net_nrc_surprise)
+
+
+
+Net_nrc_love <- get_sentiments("nrc") %>%
+filter(sentiment == "love")
+Net_nrc_love
+Netflx %>%
+inner_join(Net_nrc_love)
+```
+Try another word and explore some relationships!!
+We will see how NRC result shows for some of the sentiments and top words.
+
+```{r}
+Netflx_nrc %>% 
+  filter(n>2500) %>% #  filter only those frequency greater than 2000
+mutate(word = reorder(word, n)) %>%
+count(word,sentiment,sort=TRUE) %>%
+group_by(sentiment)%>%
+  top_n(n=5) %>% 
+ungroup() %>%
+  ggplot(aes(x=reorder(word,n),y=n,fill=sentiment)) + 
+  geom_col(show.legend = FALSE) + 
+  facet_wrap(~sentiment,scales="free") + 
+  coord_flip()
+```
+
+
+
+
+## Comparing Sentiment Lexicons
+```{r}
+library(stringr)
+library(tidyr)
+```
+
+Add more filtering such as "type" because we want more info also on the type of the title if it was a Movie or a TV show.
+```{r}
+Netflx_type <- netflix_titles %>%
+select("show_id","type","description")
+head(Netflx_type)
+
+Netflx_type <-Netflx_type %>%
+unnest_tokens(word, description) %>%
+anti_join(stop_words)
+
+Netflx_type
+
+```
+Let's use AFINN lexicon to  observe the sentiment of Movie and TV shows.
+```{r}
+Netflx_type_afinn <- Netflx_type %>%
+inner_join(get_sentiments("afinn")) %>%
+  group_by(index = type) %>%
+summarize(sentiment = sum(value)) %>% # try to get also a mean 
+mutate(method = "AFINN")
+Netflx_type_afinn
+```
+
+```{r}
+Netflx_type_bing <- Netflx_type %>%
+inner_join(get_sentiments("bing")) %>%
+  group_by(index = type) %>%
+#summarize(sentiment = sum(value)) %>% # try to get also a mean 
+mutate(method = "BING")
+Netflx_type_bing
+```
+
+```{r}
+Netflx_bing %>% 
+  filter(n>2500) %>% #  filter only those frequency greater than 2500
+mutate(word = reorder(word, n)) %>%
+count(word,sentiment,sort=TRUE) %>%
+group_by(sentiment) %>% 
+  top_n(n=10) %>% 
+ungroup() %>%
+  ggplot(aes(x=reorder(word,n),y=n,fill=sentiment)) + 
+  geom_col(show.legend = FALSE) + 
+  facet_wrap(~sentiment,scales="free") + 
+  coord_flip()
+```
+
+
+Let's do a comparision between sentiments and lexicons for the "type" of the Netflix: TV show or Movie
+
+```{r}
+Netflx_bingnrc <- bind_rows(Netflx_type %>%
+inner_join(get_sentiments("bing")) %>%
+mutate(method = "Bing et al."),Netflx_type %>%
+inner_join(get_sentiments("nrc") %>%
+filter(sentiment %in% c("positive","negative"))) %>%
+mutate(method = "NRC")) %>%
+count(method, index = type, sentiment) %>%
+spread(sentiment, n, fill = 0) %>%
+mutate(sentiment = positive - negative)
+Netflx_bingnrc
+```
+
+```{r}
+Netflx_bingnrc <- bind_rows(Netflx_type %>%
+inner_join(get_sentiments("bing")) %>%
+mutate(method = "Bing et al."),Netflx_type %>%
+inner_join(get_sentiments("nrc") %>%
+filter(sentiment %in% c("positive","negative"))) %>%
+mutate(method = "NRC")) %>%
+count(method, index = word, sentiment) %>% # try to change index "word" or "type"
+spread(sentiment, n, fill = 0) %>%
+mutate(sentiment = positive - negative)
+Netflx_bingnrc
+```
+
+How much each word contributes to the overall sentiment of the descriptions .
+```{r}
+Netflix_bingcounts <- Netflx_bing %>%
+inner_join(get_sentiments("bing")) %>%
+count(word, sentiment, sort = TRUE) %>%
+ungroup()
+Netflix_bingcounts
+```
+
+```{r}
+Netflix_bingcounts %>%
+ group_by(sentiment) %>%
+#top_n(2) %>%
+ungroup() %>%
+mutate(word = reorder(word, n)) %>%
+ggplot(aes(word, n, fill = sentiment)) +
+geom_col(show.legend = FALSE) +
+facet_wrap(~sentiment, scales = "free_y") +
+coord_flip() +
+theme_fivethirtyeight() +
+ggtitle("Words' Contribution to Sentiment in Netflix description", subtitle = "Using the Bing et. al Lexicon")
+```
+
+```{r}
+Netflx_nrccounts <- Netflx_nrc %>%
+inner_join(get_sentiments("nrc")) %>%
+filter(sentiment %in% c("positive","negative")) %>%
+count(word, sentiment, sort = TRUE) %>%
+ungroup()
+Netflx_nrccounts
+```
+
+```{r}
+Netflx_nrccounts %>%
+group_by(sentiment) %>%
+top_n(20) %>%
+ungroup() %>%
+mutate(word = reorder(word, n)) %>%
+ggplot(aes(word, n, fill = sentiment)) +
+geom_col(show.legend = FALSE) +
+facet_wrap(~sentiment, scales = "free_y") +
+coord_flip() +
+theme_fivethirtyeight() +
+ggtitle("Words' Contribution to Sentiment in Netflix", subtitle = "Using the NRC Lexicon")
+```
+
+
+More info: https://github.com/EGjika 
+
+
+
+
+
